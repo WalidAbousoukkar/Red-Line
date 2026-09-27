@@ -46,8 +46,14 @@ const globalForDb = globalThis as unknown as {
   turso?: Promise<Client>;
 };
 
-function tursoConfigured(): boolean {
-  return Boolean(process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN);
+function tursoSettings(): { url: string; authToken: string } | null {
+  const url = process.env.TURSO_DATABASE_URL?.trim();
+  const authToken = process.env.TURSO_AUTH_TOKEN?.trim();
+  if (!url || !authToken) return null;
+  return {
+    url: url.replace(/^libsql:\/\//, "https://"),
+    authToken,
+  };
 }
 
 async function openLocalDatabase(): Promise<LocalDatabase> {
@@ -68,15 +74,14 @@ async function openLocalDatabase(): Promise<LocalDatabase> {
 
 async function openTurso(): Promise<Client> {
   if (!globalForDb.turso) {
-    const url = process.env.TURSO_DATABASE_URL;
-    const authToken = process.env.TURSO_AUTH_TOKEN;
-    if (!url || !authToken) {
-      throw new Error("Turso is not configured.");
+    const settings = tursoSettings();
+    if (!settings) {
+      throw new Error("Turso settings are missing on Vercel.");
     }
 
     globalForDb.turso = (async () => {
       try {
-        const client = createClient({ url, authToken });
+        const client = createClient(settings);
         await client.execute(SCHEMA);
         const existing = await client.execute(
           "SELECT id FROM commute WHERE id = 1",
@@ -102,8 +107,15 @@ function toCommute(row: CommuteRow): Commute {
   };
 }
 
+function assertDatabaseAvailable(): void {
+  if (!tursoSettings() && process.env.VERCEL) {
+    throw new Error("Turso settings are missing on Vercel.");
+  }
+}
+
 export async function getCommute(): Promise<Commute> {
-  if (tursoConfigured()) {
+  assertDatabaseAvailable();
+  if (tursoSettings()) {
     const result = await (
       await openTurso()
     ).execute(
@@ -152,7 +164,8 @@ export async function saveCommute(input: {
   const validation = validateCommute(input);
   if (!validation.ok) return validation;
 
-  if (tursoConfigured()) {
+  assertDatabaseAvailable();
+  if (tursoSettings()) {
     await (
       await openTurso()
     ).execute({
@@ -176,7 +189,8 @@ export async function saveCommute(input: {
 }
 
 export async function setTravelingTo(travelingTo: TravelingTo): Promise<void> {
-  if (tursoConfigured()) {
+  assertDatabaseAvailable();
+  if (tursoSettings()) {
     await (
       await openTurso()
     ).execute({

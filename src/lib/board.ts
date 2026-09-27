@@ -10,7 +10,11 @@ export async function getBoard(): Promise<Board> {
   let commute;
   try {
     commute = await getCommute();
-  } catch {
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "The saved commute could not be loaded.";
     return {
       homeStopId: "place-qnctr",
       workStopId: "place-pktrm",
@@ -21,11 +25,11 @@ export async function getBoard(): Promise<Board> {
       updatedAt: new Date().toISOString(),
       branchLabel: "Red Line",
       verdict: { kind: "unavailable" },
-      detail: "The saved commute could not be loaded.",
+      detail: message,
       note: null,
       trains: [],
       alerts: [],
-      error: "Check the Turso database URL and token on Vercel.",
+      error: message,
     };
   }
   const home = getStop(commute.homeStopId);
