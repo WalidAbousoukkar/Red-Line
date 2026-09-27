@@ -222,6 +222,9 @@ export function CommuteScreen({ initial }: { initial: Board }) {
           ? "Couldn’t refresh predictions. Showing the last update."
           : `Predictions refresh every 30 seconds. Updated ${formatTime(board.updatedAt)}.`}
       </p>
+      <p className="mt-2 text-xs text-[#8d736b]">
+        Predictions and alerts from MassDOT.
+      </p>
     </main>
   );
 }

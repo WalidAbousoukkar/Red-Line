@@ -8,7 +8,7 @@ export async function saveCommute(
   formData: FormData,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const walkMinutes = Number(formData.get("walkMinutes"));
-  const result = writeCommute({
+  const result = await writeCommute({
     homeStopId: String(formData.get("homeStopId") ?? ""),
     workStopId: String(formData.get("workStopId") ?? ""),
     walkMinutes,
@@ -20,6 +20,6 @@ export async function saveCommute(
 }
 
 export async function setTravelingTo(travelingTo: TravelingTo): Promise<void> {
-  writeDirection(travelingTo);
+  await writeDirection(travelingTo);
   revalidatePath("/");
 }

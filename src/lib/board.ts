@@ -7,7 +7,7 @@ import type { Board } from "@/lib/types";
 
 export async function getBoard(): Promise<Board> {
   await connection();
-  const commute = getCommute();
+  const commute = await getCommute();
   const home = getStop(commute.homeStopId);
   const work = getStop(commute.workStopId);
   const origin = commute.travelingTo === "work" ? home : work;

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { createClient, type Client } from "@libsql/client";
 import { getStop } from "@/lib/stops";
 import type { TravelingTo } from "@/lib/types";
 
@@ -18,53 +19,98 @@ type CommuteRow = {
   traveling_to: string;
 };
 
-const globalForDb = globalThis as unknown as { commuteDb?: DatabaseSync };
+const SCHEMA = `
+  CREATE TABLE IF NOT EXISTS commute (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    home_stop_id TEXT NOT NULL,
+    work_stop_id TEXT NOT NULL,
+    walk_minutes INTEGER NOT NULL,
+    traveling_to TEXT NOT NULL
+  )
+`;
 
-function openDatabase(): DatabaseSync {
+const SEED = `
+  INSERT INTO commute (id, home_stop_id, work_stop_id, walk_minutes, traveling_to)
+  VALUES (1, 'place-qnctr', 'place-pktrm', 8, 'work')
+`;
+
+const globalForDb = globalThis as unknown as {
+  commuteDb?: DatabaseSync;
+  turso?: Promise<Client>;
+};
+
+function tursoConfigured(): boolean {
+  return Boolean(process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN);
+}
+
+function openLocalDatabase(): DatabaseSync {
   if (globalForDb.commuteDb) return globalForDb.commuteDb;
 
   const directory = path.join(process.cwd(), "data");
   fs.mkdirSync(directory, { recursive: true });
   const db = new DatabaseSync(path.join(directory, "commute.sqlite"));
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS commute (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      home_stop_id TEXT NOT NULL,
-      work_stop_id TEXT NOT NULL,
-      walk_minutes INTEGER NOT NULL,
-      traveling_to TEXT NOT NULL
-    )
-  `);
+  db.exec(SCHEMA);
 
   const existing = db.prepare("SELECT id FROM commute WHERE id = 1").get();
-  if (!existing) {
-    db.prepare(
-      `INSERT INTO commute (id, home_stop_id, work_stop_id, walk_minutes, traveling_to)
-       VALUES (1, 'place-qnctr', 'place-pktrm', 8, 'work')`,
-    ).run();
-  }
+  if (!existing) db.prepare(SEED).run();
 
   globalForDb.commuteDb = db;
   return db;
 }
 
-export function getCommute(): Commute {
-  const row = openDatabase()
+async function openTurso(): Promise<Client> {
+  if (!globalForDb.turso) {
+    const url = process.env.TURSO_DATABASE_URL;
+    const authToken = process.env.TURSO_AUTH_TOKEN;
+    if (!url || !authToken) {
+      throw new Error("Turso is not configured.");
+    }
+
+    globalForDb.turso = (async () => {
+      const client = createClient({ url, authToken });
+      await client.execute(SCHEMA);
+      const existing = await client.execute(
+        "SELECT id FROM commute WHERE id = 1",
+      );
+      if (existing.rows.length === 0) await client.execute(SEED);
+      return client;
+    })();
+  }
+
+  return globalForDb.turso;
+}
+
+function toCommute(row: CommuteRow): Commute {
+  return {
+    homeStopId: String(row.home_stop_id),
+    workStopId: String(row.work_stop_id),
+    walkMinutes: Number(row.walk_minutes),
+    travelingTo: row.traveling_to === "home" ? "home" : "work",
+  };
+}
+
+export async function getCommute(): Promise<Commute> {
+  if (tursoConfigured()) {
+    const result = await (
+      await openTurso()
+    ).execute(
+      `SELECT home_stop_id, work_stop_id, walk_minutes, traveling_to
+       FROM commute WHERE id = 1`,
+    );
+    return toCommute(result.rows[0] as unknown as CommuteRow);
+  }
+
+  const row = openLocalDatabase()
     .prepare(
       `SELECT home_stop_id, work_stop_id, walk_minutes, traveling_to
        FROM commute WHERE id = 1`,
     )
     .get() as CommuteRow;
 
-  return {
-    homeStopId: row.home_stop_id,
-    workStopId: row.work_stop_id,
-    walkMinutes: row.walk_minutes,
-    travelingTo: row.traveling_to === "home" ? "home" : "work",
-  };
+  return toCommute(row);
 }
 
-export function saveCommute(input: {
+function validateCommute(input: {
   homeStopId: string;
   workStopId: string;
   walkMinutes: number;
@@ -82,8 +128,30 @@ export function saveCommute(input: {
   ) {
     return { ok: false, error: "Walk time needs to be between 1 and 45 minutes." };
   }
+  return { ok: true };
+}
 
-  openDatabase()
+export async function saveCommute(input: {
+  homeStopId: string;
+  workStopId: string;
+  walkMinutes: number;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const validation = validateCommute(input);
+  if (!validation.ok) return validation;
+
+  if (tursoConfigured()) {
+    await (
+      await openTurso()
+    ).execute({
+      sql: `UPDATE commute
+            SET home_stop_id = ?, work_stop_id = ?, walk_minutes = ?
+            WHERE id = 1`,
+      args: [input.homeStopId, input.workStopId, input.walkMinutes],
+    });
+    return { ok: true };
+  }
+
+  openLocalDatabase()
     .prepare(
       `UPDATE commute
        SET home_stop_id = ?, work_stop_id = ?, walk_minutes = ?
@@ -94,8 +162,18 @@ export function saveCommute(input: {
   return { ok: true };
 }
 
-export function setTravelingTo(travelingTo: TravelingTo): void {
-  openDatabase()
+export async function setTravelingTo(travelingTo: TravelingTo): Promise<void> {
+  if (tursoConfigured()) {
+    await (
+      await openTurso()
+    ).execute({
+      sql: "UPDATE commute SET traveling_to = ? WHERE id = 1",
+      args: [travelingTo],
+    });
+    return;
+  }
+
+  openLocalDatabase()
     .prepare("UPDATE commute SET traveling_to = ? WHERE id = 1")
     .run(travelingTo);
 }
