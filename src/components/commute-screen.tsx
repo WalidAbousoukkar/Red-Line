@@ -294,5 +294,9 @@ function stopName(id: string): string {
 function formatTime(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "just now";
-  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "America/New_York",
+  });
 }
