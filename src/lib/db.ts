@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { createClient, type Client } from "@libsql/client";
+import { createClient, type Client } from "@tursodatabase/serverless/compat";
 import { getStop } from "@/lib/stops";
 import type { TravelingTo } from "@/lib/types";
 
@@ -46,14 +46,15 @@ const globalForDb = globalThis as unknown as {
   turso?: Promise<Client>;
 };
 
+function cleanSetting(value: string | undefined): string {
+  return (value ?? "").trim().replace(/^['"]|['"]$/g, "");
+}
+
 function tursoSettings(): { url: string; authToken: string } | null {
-  const url = process.env.TURSO_DATABASE_URL?.trim();
-  const authToken = process.env.TURSO_AUTH_TOKEN?.trim();
+  const url = cleanSetting(process.env.TURSO_DATABASE_URL);
+  const authToken = cleanSetting(process.env.TURSO_AUTH_TOKEN);
   if (!url || !authToken) return null;
-  return {
-    url: url.replace(/^libsql:\/\//, "https://"),
-    authToken,
-  };
+  return { url, authToken };
 }
 
 async function openLocalDatabase(): Promise<LocalDatabase> {
