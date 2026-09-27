@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { createClient, type Client } from "@libsql/client";
 import { getStop } from "@/lib/stops";
 import type { TravelingTo } from "@/lib/types";
@@ -34,8 +33,16 @@ const SEED = `
   VALUES (1, 'place-qnctr', 'place-pktrm', 8, 'work')
 `;
 
+type LocalDatabase = {
+  exec: (sql: string) => void;
+  prepare: (sql: string) => {
+    get: () => unknown;
+    run: (...args: unknown[]) => void;
+  };
+};
+
 const globalForDb = globalThis as unknown as {
-  commuteDb?: DatabaseSync;
+  commuteDb?: LocalDatabase;
   turso?: Promise<Client>;
 };
 
@@ -43,9 +50,10 @@ function tursoConfigured(): boolean {
   return Boolean(process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN);
 }
 
-function openLocalDatabase(): DatabaseSync {
+async function openLocalDatabase(): Promise<LocalDatabase> {
   if (globalForDb.commuteDb) return globalForDb.commuteDb;
 
+  const { DatabaseSync } = await import("node:sqlite");
   const directory = path.join(process.cwd(), "data");
   fs.mkdirSync(directory, { recursive: true });
   const db = new DatabaseSync(path.join(directory, "commute.sqlite"));
@@ -67,13 +75,18 @@ async function openTurso(): Promise<Client> {
     }
 
     globalForDb.turso = (async () => {
-      const client = createClient({ url, authToken });
-      await client.execute(SCHEMA);
-      const existing = await client.execute(
-        "SELECT id FROM commute WHERE id = 1",
-      );
-      if (existing.rows.length === 0) await client.execute(SEED);
-      return client;
+      try {
+        const client = createClient({ url, authToken });
+        await client.execute(SCHEMA);
+        const existing = await client.execute(
+          "SELECT id FROM commute WHERE id = 1",
+        );
+        if (existing.rows.length === 0) await client.execute(SEED);
+        return client;
+      } catch (error) {
+        globalForDb.turso = undefined;
+        throw error;
+      }
     })();
   }
 
@@ -100,7 +113,7 @@ export async function getCommute(): Promise<Commute> {
     return toCommute(result.rows[0] as unknown as CommuteRow);
   }
 
-  const row = openLocalDatabase()
+  const row = (await openLocalDatabase())
     .prepare(
       `SELECT home_stop_id, work_stop_id, walk_minutes, traveling_to
        FROM commute WHERE id = 1`,
@@ -151,7 +164,7 @@ export async function saveCommute(input: {
     return { ok: true };
   }
 
-  openLocalDatabase()
+  (await openLocalDatabase())
     .prepare(
       `UPDATE commute
        SET home_stop_id = ?, work_stop_id = ?, walk_minutes = ?
@@ -173,7 +186,7 @@ export async function setTravelingTo(travelingTo: TravelingTo): Promise<void> {
     return;
   }
 
-  openLocalDatabase()
+  (await openLocalDatabase())
     .prepare("UPDATE commute SET traveling_to = ? WHERE id = 1")
     .run(travelingTo);
 }

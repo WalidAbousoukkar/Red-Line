@@ -7,7 +7,27 @@ import type { Board } from "@/lib/types";
 
 export async function getBoard(): Promise<Board> {
   await connection();
-  const commute = await getCommute();
+  let commute;
+  try {
+    commute = await getCommute();
+  } catch {
+    return {
+      homeStopId: "place-qnctr",
+      workStopId: "place-pktrm",
+      travelingTo: "work",
+      walkMinutes: 8,
+      originName: "Quincy Center",
+      destinationName: "Park Street",
+      updatedAt: new Date().toISOString(),
+      branchLabel: "Red Line",
+      verdict: { kind: "unavailable" },
+      detail: "The saved commute could not be loaded.",
+      note: null,
+      trains: [],
+      alerts: [],
+      error: "Check the Turso database URL and token on Vercel.",
+    };
+  }
   const home = getStop(commute.homeStopId);
   const work = getStop(commute.workStopId);
   const origin = commute.travelingTo === "work" ? home : work;
