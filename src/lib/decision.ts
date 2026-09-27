@@ -65,7 +65,7 @@ export function planTrip(
   return {
     origin,
     destination,
-    directionId: inbound ? 0 : 1,
+    directionId: inbound ? 1 : 0,
     pathIds: path.map((stop) => stop.id),
     headsign,
     branchLabel: usesBraintree
