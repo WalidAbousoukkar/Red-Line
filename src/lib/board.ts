@@ -78,7 +78,6 @@ export async function getBoard(): Promise<Board> {
   try {
     const feed = await fetchTripFeed(plan);
     const { aimed, missed } = chooseDeparture(feed.trains, commute.walkMinutes);
-    const trainLabel = `${plan.branchLabel} train`;
 
     const trains = feed.trains.map((train) => ({
       id: train.id,
@@ -103,6 +102,7 @@ export async function getBoard(): Promise<Board> {
       };
     }
 
+    const trainLabel = `${aimed.headsign} train`;
     const leaveIn = aimed.minutes - commute.walkMinutes;
     const verdict =
       leaveIn <= 0
